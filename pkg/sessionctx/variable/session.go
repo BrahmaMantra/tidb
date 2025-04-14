@@ -1687,6 +1687,18 @@ type SessionVars struct {
 
 	// CacheStmtExecInfo is a cache for the statement execution information, used to reduce the overhead of memory allocation.
 	CacheStmtExecInfo *stmtsummary.StmtExecInfo
+
+	// EnableQueryCache enables the query cache.
+	EnableQueryCache bool
+
+	// QueryCacheSize is the size of the query cache.(MB)
+	QueryCacheSize int
+
+	// QueryCacheResultMAX is the size of the query cache result.(B)
+	QueryCacheResultMAX int
+
+	// QueryCacheTTL is the TTL of the query cache.(s)
+	QueryCacheTTL int
 }
 
 // GetSessionVars implements the `SessionVarsProvider` interface.

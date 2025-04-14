@@ -34,6 +34,8 @@ import (
 	"testing"
 	"time"
 
+	goLog "log"
+
 	mysqlcursor "github.com/YangKeao/go-mysql-driver"
 	"github.com/go-sql-driver/mysql"
 	"github.com/pingcap/errors"
@@ -381,6 +383,84 @@ func (cli *TestServerClient) RunTestPreparedTimestamp(t *testing.T) {
 		require.Equal(t, "23:59:59", outB)
 		require.NoError(t, rows.Close())
 		require.NoError(t, selectStmt.Close())
+	})
+}
+
+func (cli *TestServerClient) RunTestPreparedStmt(t *testing.T) {
+	cli.RunTestsOnNewDB(t, nil, "query_cache_db", func(dbt *testkit.DBTestKit) {
+		dbt.MustExec("create table t1 (a int key, b int)")
+		dbt.MustExec("insert into t1 values (1,1), (2,2)")
+		log.Debug("insert into t1 values (1,1), (2,2)")
+		dbt.GetDB().SetMaxOpenConns(1)
+		selectStmt := dbt.MustPrepare("select * from t1 where a = ?")
+		goLog.Println("1. query with select * from t1 where a = 1")
+		rows := dbt.MustQueryPrepared(selectStmt, 1)
+		require.True(t, rows.Next())
+		var outA, outB int
+		err := rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 1, outA)
+		require.Equal(t, 1, outB)
+		require.NoError(t, rows.Close())
+		goLog.Println("2. query with select * from t1 where a = 1")
+		rows = dbt.MustQueryPrepared(selectStmt, 1)
+		require.True(t, rows.Next())
+		err = rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 1, outA)
+		require.Equal(t, 1, outB)
+		require.NoError(t, rows.Close())
+		goLog.Println("3. query with select * from t1 where a = 2")
+		rows = dbt.MustQueryPrepared(selectStmt, 2)
+		require.True(t, rows.Next())
+		err = rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 2, outA)
+		require.Equal(t, 2, outB)
+		require.NoError(t, rows.Close())
+
+		// Test read in txn.
+		goLog.Println("4. begin txn")
+		dbt.MustExec("begin")
+		goLog.Println("5. update t1 set b=2 where a=1")
+		dbt.MustExec("update t1 set b=2 where a=1")
+		goLog.Println("6. query with select * from t1 where a = 1")
+		rows = dbt.MustQueryPrepared(selectStmt, 1)
+		require.True(t, rows.Next())
+		err = rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 1, outA)
+		require.Equal(t, 2, outB)
+		require.NoError(t, rows.Close())
+		goLog.Println("7. rollback")
+		dbt.MustExec("rollback")
+		require.NoError(t, selectStmt.Close())
+
+		goLog.Println("8. prepare select * from t1 where b = 1")
+		selectStmt = dbt.MustPrepare("select * from t1 where b = ?")
+		rows = dbt.MustQueryPrepared(selectStmt, 1)
+		require.True(t, rows.Next())
+		err = rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 1, outA)
+		require.Equal(t, 1, outB)
+		require.NoError(t, rows.Close())
+		goLog.Println("9. query with select * from t1 where b = 1")
+		rows = dbt.MustQueryPrepared(selectStmt, 1)
+		require.True(t, rows.Next())
+		err = rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 1, outA)
+		require.Equal(t, 1, outB)
+		require.NoError(t, rows.Close())
+		goLog.Println("10. query with select * from t1 where b = 2")
+		rows = dbt.MustQueryPrepared(selectStmt, 2)
+		require.True(t, rows.Next())
+		err = rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 2, outA)
+		require.Equal(t, 2, outB)
+		require.NoError(t, rows.Close())
 	})
 }
 

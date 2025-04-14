@@ -273,7 +273,12 @@ func (cc *clientConn) executePreparedStmtAndWriteResult(ctx context.Context, stm
 		BinaryArgs: args,
 		PrepStmt:   prepStmt,
 	}
+	// querycache.NewQueryCache()
 
+	// 这里似乎没读到正确的值，开发阶段先直接设置全局默认值
+	// if vars.EnableQueryCache {
+	// 	querycache.GlobalQueryCache.IsEnable = true
+	// }
 	// first, try to clear the left cursor if there is one
 	if useCursor && stmt.GetCursorActive() {
 		if stmt.GetResultSet() != nil && stmt.GetResultSet().GetRowIterator() != nil {

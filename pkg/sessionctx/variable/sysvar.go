@@ -3447,6 +3447,42 @@ var defaultSysVars = []*SysVar{
 			return (*SetPDClientDynamicOption.Load())(TiDBTSOClientRPCMode, val)
 		},
 	},
+	{Scope: ScopeGlobal | ScopeSession, Name: TiDBEnableQueryCache, Value: BoolToOnOff(DefTiDBEnableQueryCache), Type: TypeBool,
+		SetSession: func(s *SessionVars, val string) error {
+			s.EnableQueryCache = TiDBOptOn(val)
+			return nil
+		},
+		GetSession: func(vars *SessionVars) (string, error) {
+			return BoolToOnOff(vars.EnableQueryCache), nil
+		},
+	},
+	{Scope: ScopeGlobal | ScopeSession, Name: TiDBQueryCacheSize, Value: strconv.Itoa(DefTiDBQueryCacheSize), Type: TypeUnsigned, MinValue: 0, MaxValue: math.MaxInt32,
+		SetSession: func(vars *SessionVars, val string) error {
+			vars.QueryCacheSize = tidbOptPositiveInt32(val, DefTiDBQueryCacheSize)
+			return nil
+		},
+		GetSession: func(vars *SessionVars) (string, error) {
+			return strconv.Itoa(vars.QueryCacheSize), nil
+		},
+	},
+	{Scope: ScopeGlobal | ScopeSession, Name: TiDBQueryCacheResultMAX, Value: strconv.Itoa(DefTiDBQueryCacheResultMAX), Type: TypeInt, MinValue: 0, MaxValue: 1024,
+		SetSession: func(vars *SessionVars, val string) error {
+			vars.QueryCacheResultMAX = tidbOptPositiveInt32(val, DefTiDBQueryCacheResultMAX)
+			return nil
+		},
+		GetSession: func(vars *SessionVars) (string, error) {
+			return strconv.Itoa(vars.QueryCacheResultMAX), nil
+		},
+	},
+	{Scope: ScopeGlobal | ScopeSession, Name: TiDBQueryCacheTTL, Value: strconv.Itoa(DefTiDBQueryCacheTTL), Type: TypeInt, MinValue: 0, MaxValue: 1024,
+		SetSession: func(vars *SessionVars, val string) error {
+			vars.QueryCacheTTL = tidbOptPositiveInt32(val, DefTiDBQueryCacheTTL)
+			return nil
+		},
+		GetSession: func(vars *SessionVars) (string, error) {
+			return strconv.Itoa(vars.QueryCacheTTL), nil
+		},
+	},
 }
 
 // GlobalSystemVariableInitialValue gets the default value for a system variable including ones that are dynamically set (e.g. based on the store)
