@@ -29,9 +29,7 @@ import (
 
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/chunk"
-	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/sqlexec"
-	"go.uber.org/zap"
 )
 
 // ResultSet is the result set of an query.
@@ -54,10 +52,10 @@ var _ ResultSet = &tidbResultSet{}
 func New(recordSet sqlexec.RecordSet, preparedStmt *core.PlanCacheStmt, args []expression.Expression) ResultSet {
 	var useQueryCache bool = true //Next should be false
 	if set, ok := recordSet.(interface{ IsQueryCacheable() bool }); ok {
-		logutil.BgLogger().Info("New() IsQueryCacheable", zap.Bool("IsQueryCacheable", set.IsQueryCacheable()))
+		// logutil.BgLogger().Info("New() IsQueryCacheable", zap.Bool("IsQueryCacheable", set.IsQueryCacheable()))
 		useQueryCache = set.IsQueryCacheable()
 	}
-	logutil.BgLogger().Info("New() useQueryCache", zap.Bool("useQueryCache", useQueryCache))
+	// logutil.BgLogger().Info("New() useQueryCache", zap.Bool("useQueryCache", useQueryCache))
 	return &tidbResultSet{
 		recordSet:     recordSet,
 		preparedStmt:  preparedStmt,
@@ -111,15 +109,15 @@ func (trs *tidbResultSet) Next(ctx context.Context, req *chunk.Chunk) error {
 		if req.NumRows() == 0 {
 			return nil
 		}
-		logutil.BgLogger().Info("Next():req.NumRows()", zap.Any("req.NumRows()", req.NumRows()))
+		// logutil.BgLogger().Info("Next():req.NumRows()", zap.Any("req.NumRows()", req.NumRows()))
 		newChunk := req.CopyConstructSel()
-		logutil.BgLogger().Info("Next():trs.chunks append newChunk ", zap.Any("trs.chunks", trs.chunks), zap.Any("newChunk", newChunk))
+		// logutil.BgLogger().Info("Next():trs.chunks append newChunk ", zap.Any("trs.chunks", trs.chunks), zap.Any("newChunk", newChunk))
 		trs.chunks = append(trs.chunks, newChunk)
 		size := cacheMemUsage(trs.chunks)
 		if uint64(size) >= querycache.QueryCacheResultMAX() {
 			trs.useQueryCache = false
-			logutil.BgLogger().Info("size > querycache.QueryCacheResultMAX()", zap.Uint64("size", uint64(size)), zap.Uint64("querycache.QueryCacheResultMAX()", querycache.QueryCacheResultMAX()))
-			logutil.BgLogger().Info("trs.useQueryCache = ", zap.Bool("useQueryCache", trs.useQueryCache))
+			// logutil.BgLogger().Info("size > querycache.QueryCacheResultMAX()", zap.Uint64("size", uint64(size)), zap.Uint64("querycache.QueryCacheResultMAX()", querycache.QueryCacheResultMAX()))
+			// logutil.BgLogger().Info("trs.useQueryCache = ", zap.Bool("useQueryCache", trs.useQueryCache))
 			trs.chunks = nil
 		}
 	}
@@ -137,13 +135,13 @@ func (trs *tidbResultSet) Finish() error {
 				return err
 			}
 		}
-		logutil.BgLogger().Info("Finish():trs.useQueryCache", zap.Bool("useQueryCache", trs.useQueryCache))
+		// logutil.BgLogger().Info("Finish():trs.useQueryCache", zap.Bool("useQueryCache", trs.useQueryCache))
 		if trs.useQueryCache {
 			// 这里是因为之前尝试 SHOW DATABASES 也走了query cache，但preparedStmt为nil导致有问题
 			if trs.preparedStmt == nil {
 				return nil
 			}
-			// logutil.BgLogger().Info("&stmt", zap.Any("stmt.Text()", &stmt)) // SELECT c FROM sbtest29 WHERE id=?
+			// // logutil.BgLogger().Info("&stmt", zap.Any("stmt.Text()", &stmt)) // SELECT c FROM sbtest29 WHERE id=?
 			sql := trs.preparedStmt.StmtText // SELECT c FROM sbtest29 WHERE id=?
 			key := querycache.NewQueryCacheKey(sql, trs.args)
 
@@ -151,12 +149,12 @@ func (trs *tidbResultSet) Finish() error {
 			if result == nil || result.Chunk == nil || result.Chunk.NumRows() == 0 {
 				return nil
 			}
-			logutil.BgLogger().Info("Finish() try to set query cache", zap.Any("key", key), zap.Any("result", result))
+			// logutil.BgLogger().Info("Finish() try to set query cache", zap.Any("key", key), zap.Any("result", result))
 			_, err := querycache.Set(key, result)
 			if err != nil {
 				return err
 			}
-			logutil.BgLogger().Info("Query Cache successfully Set key = ", zap.Any("key", key))
+			// logutil.BgLogger().Info("Query Cache successfully Set key = ", zap.Any("key", key))
 			// trs.chunks = nil
 		}
 	}

@@ -27,11 +27,9 @@ import (
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	"github.com/pingcap/tidb/pkg/util/kvcache"
-	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/mathutil"
 	"github.com/pingcap/tidb/pkg/util/size"
 	"github.com/pingcap/tidb/pkg/util/syncutil"
-	"go.uber.org/zap"
 )
 
 var (
@@ -127,14 +125,14 @@ func NewQueryCacheKey(prepStmtSql string, args []expression.Expression) *QueryCa
 // CheckQueryCache checks if query cache is enabled and sets the global query cache configuration
 // func CheckQueryCache(vars *variable.SessionVars) bool {
 // 	if !vars.EnableQueryCache {
-// 		logutil.BgLogger().Info("CheckQueryCache", zap.Bool("EnableQueryCache", vars.EnableQueryCache))
+// 		// logutil.BgLogger().Info("CheckQueryCache", zap.Bool("EnableQueryCache", vars.EnableQueryCache))
 // 		return false
 // 	}
 // 	GlobalQueryCache.IsEnable = true
 // 	GlobalQueryCache.ttl = uint64(vars.QueryCacheTTL)
 // 	GlobalQueryCache.memCapacity = uint64(vars.QueryCacheSize) * size.MB
 // 	GlobalQueryCache.queryCacheResultMAX = uint64(vars.QueryCacheResultMAX) * size.KB
-// 	logutil.BgLogger().Info("CheckQueryCache", zap.Uint64("memCapacity", GlobalQueryCache.memCapacity), zap.Uint64("queryCacheResultMAX", GlobalQueryCache.queryCacheResultMAX))
+// 	// logutil.BgLogger().Info("CheckQueryCache", zap.Uint64("memCapacity", GlobalQueryCache.memCapacity), zap.Uint64("queryCacheResultMAX", GlobalQueryCache.queryCacheResultMAX))
 // 	return true
 // }
 
@@ -158,7 +156,7 @@ func NewQueryCache() error {
 	// 		queryCacheResultMAX: uint64(variable.DefTiDBQueryCacheResultMAX) * size.KB,
 	// 		IsEnable:            true,
 	// 	}
-	// 	logutil.BgLogger().Info("NewQueryCache is ok", zap.Bool("isEnable =", GlobalQueryCache.IsEnable))
+	// 	// logutil.BgLogger().Info("NewQueryCache is ok", zap.Bool("isEnable =", GlobalQueryCache.IsEnable))
 	// })
 	return err
 }
@@ -186,8 +184,8 @@ func debugQueryCache() {
 	GlobalQueryCache.lock.Lock()
 	defer GlobalQueryCache.lock.Unlock()
 	GlobalQueryCache.queriesMap.Range(func(key, value interface{}) bool {
-		logutil.BgLogger().Info("debugQueryCache() key", zap.Any("key", key))
-		logutil.BgLogger().Info("debugQueryCache() value", zap.Any("value", value))
+		// logutil.BgLogger().Info("debugQueryCache() key", zap.Any("key", key))
+		// logutil.BgLogger().Info("debugQueryCache() value", zap.Any("value", value))
 		return true
 	})
 }
@@ -197,11 +195,11 @@ func Get(key *QueryCacheKey) (*QueryCacheResult, error) {
 	var typedValue *QueryCacheResult
 	defer func() {
 		// debugQueryCache()
-		// logutil.BgLogger().Info("Get() after func ", zap.Any("key", key), zap.Any("typedValue", typedValue))
+		// // logutil.BgLogger().Info("Get() after func ", zap.Any("key", key), zap.Any("typedValue", typedValue))
 		failpoint.InjectCall("AfterGetQueryCache", key, typedValue)
-		// logutil.BgLogger().Info("Result == nil ", zap.Bool("Result == nil", typedValue == nil))
+		// // logutil.BgLogger().Info("Result == nil ", zap.Bool("Result == nil", typedValue == nil))
 		// if typedValue != nil {
-		// 	logutil.BgLogger().Info("Result.Chunk == nil is ", zap.Bool("Result.Chunk == nil", typedValue.Chunk == nil))
+		// 	// logutil.BgLogger().Info("Result.Chunk == nil is ", zap.Bool("Result.Chunk == nil", typedValue.Chunk == nil))
 		// }
 	}()
 	value, hit := GlobalQueryCache.get(key)
@@ -225,7 +223,7 @@ func Set(key *QueryCacheKey, value *QueryCacheResult) (bool, error) {
 		}
 	}()
 	if value == nil || value.Chunk == nil {
-		// logutil.BgLogger().Info("Set() value == nil")
+		// // logutil.BgLogger().Info("Set() value == nil")
 		return false, nil
 	}
 	mem := value.size()                                    // 获取 ResultSet 结构体的大小
@@ -234,7 +232,7 @@ func Set(key *QueryCacheKey, value *QueryCacheResult) (bool, error) {
 	}
 
 	for mem+GlobalQueryCache.size() > int64(GlobalQueryCache.memCapacity) {
-		logutil.BgLogger().Info("mem+GlobalQueryCache.size() > int64(GlobalQueryCache.memCapacity)", zap.Int64("mem", mem), zap.Int64("GlobalQueryCache.size()", GlobalQueryCache.size()), zap.Int64("GlobalQueryCache.memCapacity", int64(GlobalQueryCache.memCapacity)))
+		// logutil.BgLogger().Info("mem+GlobalQueryCache.size() > int64(GlobalQueryCache.memCapacity)", zap.Int64("mem", mem), zap.Int64("GlobalQueryCache.size()", GlobalQueryCache.size()), zap.Int64("GlobalQueryCache.memCapacity", int64(GlobalQueryCache.memCapacity)))
 		evictedKey, _, evicted := GlobalQueryCache.removeOldest()
 		if !evicted {
 			return false, nil
@@ -242,15 +240,15 @@ func Set(key *QueryCacheKey, value *QueryCacheResult) (bool, error) {
 		// Type assert evictedValue to *QueryCacheresult to get its size
 		evictedQuery, ok := evictedKey.(*QueryCacheKey)
 		if !ok {
-			logutil.BgLogger().Error("evictedKey is not *QueryCacheKey", zap.Any("evictedKey", evictedKey))
+			// logutil.BgLogger().Error("evictedKey is not *QueryCacheKey", zap.Any("evictedKey", evictedKey))
 			return false, nil
 		}
 
 		GlobalQueryCache.evictQuery(evictedQuery)
 	}
-	logutil.BgLogger().Info("Set() put key = ", zap.Any("key", key))
+	// logutil.BgLogger().Info("Set() put key = ", zap.Any("key", key))
 	GlobalQueryCache.put(key, value)
-	logutil.BgLogger().Info("Set() put value = ", zap.Any("value", value))
+	// logutil.BgLogger().Info("Set() put value = ", zap.Any("value", value))
 
 	// Store in queriesMap
 	GlobalQueryCache.queriesMap.Store(key, value)
@@ -263,7 +261,7 @@ func Set(key *QueryCacheKey, value *QueryCacheResult) (bool, error) {
 		tableQueryMap.(*sync.Map).Store(key, struct{}{})
 	}
 
-	logutil.BgLogger().Info("Set() put key successfully ")
+	// logutil.BgLogger().Info("Set() put key successfully ")
 	return true, nil
 }
 
@@ -351,14 +349,14 @@ func NewQueryCacheResult(chunks []*chunk.Chunk, fields []*resolve.ResultField) *
 	result := &QueryCacheResult{}
 	result.Chunk = chunks[0]
 	for i := 1; i < len(chunks); i++ {
-		logutil.BgLogger().Info("NewQueryCacheResult() append chunks[i]", zap.Any("chunks[i]", chunks[i]), zap.Any("chunks[i].NumRows()", chunks[i].NumRows()))
+		// logutil.BgLogger().Info("NewQueryCacheResult() append chunks[i]", zap.Any("chunks[i]", chunks[i]), zap.Any("chunks[i].NumRows()", chunks[i].NumRows()))
 		result.Chunk.Append(chunks[i], 0, chunks[i].NumRows())
 	}
 	result.fields = fields
 	// 不确定这里有无重复的，应该打印看看
 	for _, field := range fields {
 		result.tables = append(result.tables, field.Table.ID)
-		logutil.BgLogger().Info("NewQueryCacheResult() append fields[i].Table.ID", zap.Int64("fields[i].Table.ID", field.Table.ID))
+		// logutil.BgLogger().Info("NewQueryCacheResult() append fields[i].Table.ID", zap.Int64("fields[i].Table.ID", field.Table.ID))
 	}
 	return result
 }
@@ -383,11 +381,11 @@ func (q *QueryCacheRecordSet) Fields() []*resolve.ResultField {
 func (q *QueryCacheRecordSet) Next(_ context.Context, req *chunk.Chunk) error {
 	req.Reset()
 	if q.QueryCacheResult.Chunk == nil {
-		logutil.BgLogger().Info("Next():q.QueryCacheResult.Chunk == nil")
+		// logutil.BgLogger().Info("Next():q.QueryCacheResult.Chunk == nil")
 		return nil
 	}
 	if q.used {
-		logutil.BgLogger().Info("Next():q.used is true")
+		// logutil.BgLogger().Info("Next():q.used is true")
 		return nil
 	}
 	q.used = true
