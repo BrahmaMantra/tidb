@@ -45,6 +45,7 @@ import (
 	"io"
 	"net"
 	"os/user"
+	"reflect"
 	"runtime"
 	"runtime/pprof"
 	"runtime/trace"
@@ -2317,6 +2318,13 @@ func (cc *clientConn) writeChunks(ctx context.Context, rs resultset.ResultSet, b
 		})
 		// Here server.tidbResultSet implements Next method.
 		err := rs.Next(ctx, req)
+
+		// 在原有的日志记录之前添加类型打印
+		logutil.BgLogger().Info("rs.Next()",
+			zap.Any("rs", rs),
+			zap.String("rsType", reflect.TypeOf(rs).String())) // 打印 rs 的类型
+		// 这里打印出来就是"{}"
+		logutil.BgLogger().Info("req", zap.Any("req.NumRows()", req.NumRows()))
 		if err != nil {
 			return firstNext, err
 		}
@@ -2358,6 +2366,7 @@ func (cc *clientConn) writeChunks(ctx context.Context, rs resultset.ResultSet, b
 			} else {
 				data, err = column.DumpTextRow(data, rs.Columns(), req.GetRow(i), cc.rsEncoder)
 			}
+			logutil.BgLogger().Info("data", zap.Any("data", data), zap.Any("columns", rs.Columns()), zap.Any("row", req.GetRow(i)))
 			if err != nil {
 				reg.End()
 				return false, err

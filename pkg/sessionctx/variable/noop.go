@@ -341,7 +341,8 @@ var noopSysVars = []*SysVar{
 	{Scope: ScopeGlobal, Name: "sha256_password_proxy_users", Value: ""},
 	{Scope: ScopeGlobal | ScopeSession, Name: SQLQuoteShowCreate, Value: On, Type: TypeBool},
 	{Scope: ScopeGlobal | ScopeSession, Name: "binlogging_impossible_mode", Value: "IGNORE_ERROR"},
-	{Scope: ScopeGlobal | ScopeSession, Name: QueryCacheSize, Value: "1048576"},
+	// 为什么这里原本会有querycachesize，但是我从开源Tidb里clone下来的没有🤔
+	// {Scope: ScopeGlobal | ScopeSession, Name: QueryCacheSize, Value: "1048576"},
 	{Scope: ScopeGlobal, Name: "innodb_stats_transient_sample_pages", Value: "8"},
 	{Scope: ScopeGlobal, Name: InnodbStatsOnMetadata, Value: "0"},
 	{Scope: ScopeNone, Name: "server_uuid", Value: "00000000-0000-0000-0000-000000000000"},

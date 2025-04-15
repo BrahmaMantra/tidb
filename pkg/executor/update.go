@@ -29,6 +29,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/model"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	plannercore "github.com/pingcap/tidb/pkg/planner/core"
+	"github.com/pingcap/tidb/pkg/server/querycache"
 	"github.com/pingcap/tidb/pkg/sessionctx"
 	"github.com/pingcap/tidb/pkg/table"
 	"github.com/pingcap/tidb/pkg/types"
@@ -397,6 +398,9 @@ func (e *UpdateExec) updateRows(ctx context.Context) (int, error) {
 		}
 	}
 
+	// 用于记录修改的表ID，以便后续清除查询缓存
+	modifiedTableIDs := make(map[int64]struct{})
+
 	dupKeyCheck := optimizeDupKeyCheckForUpdate(txn, e.IgnoreError)
 	for {
 		e.memTracker.Consume(-memUsageOfChk)
@@ -450,11 +454,28 @@ func (e *UpdateExec) updateRows(ctx context.Context) (int, error) {
 				globalRowIdx, datumRow, newRow, dupKeyCheck); err != nil {
 				return 0, err
 			}
+
+			// 收集被修改的表ID
+			for i, content := range e.tblColPosInfos {
+				if e.changed[i] {
+					// 如果这一行已经修改了该表的数据，记录下表ID
+					modifiedTableIDs[content.TblID] = struct{}{}
+				}
+			}
+
 			globalRowIdx++
 		}
 		totalNumRows += chk.NumRows()
 		chk = chunk.Renew(chk, e.MaxChunkSize())
 	}
+
+	// 对所有修改过的表ID清除查询缓存
+	if len(modifiedTableIDs) > 0 && e.Ctx().GetSessionVars().EnableQueryCache {
+		for tableID := range modifiedTableIDs {
+			querycache.EvictQuerysByTableID(tableID)
+		}
+	}
+
 	return totalNumRows, nil
 }
 

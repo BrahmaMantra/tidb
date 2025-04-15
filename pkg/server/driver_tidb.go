@@ -18,27 +18,33 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/pkg/expression"
 	"github.com/pingcap/tidb/pkg/extension"
 	"github.com/pingcap/tidb/pkg/kv"
+	"github.com/pingcap/tidb/pkg/param"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/parser/terror"
 	"github.com/pingcap/tidb/pkg/planner/core"
+	plannercore "github.com/pingcap/tidb/pkg/planner/core"
 	servererr "github.com/pingcap/tidb/pkg/server/err"
 	"github.com/pingcap/tidb/pkg/server/internal/column"
 	"github.com/pingcap/tidb/pkg/server/internal/resultset"
+	"github.com/pingcap/tidb/pkg/server/querycache"
 	"github.com/pingcap/tidb/pkg/session"
 	sessiontypes "github.com/pingcap/tidb/pkg/session/types"
 	"github.com/pingcap/tidb/pkg/sessionctx"
 	"github.com/pingcap/tidb/pkg/sessionctx/sessionstates"
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	contextutil "github.com/pingcap/tidb/pkg/util/context"
+	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/sqlexec"
 	"github.com/pingcap/tidb/pkg/util/topsql/stmtstats"
+	"go.uber.org/zap"
 )
 
 // TiDBDriver implements IDriver.
@@ -93,7 +99,7 @@ func (ts *TiDBStatement) Execute(ctx context.Context, args []expression.Expressi
 	if tidbRecordset == nil {
 		return
 	}
-	rs = resultset.New(tidbRecordset, ts.ctx.GetSessionVars().PreparedStmts[ts.id].(*core.PlanCacheStmt))
+	rs = resultset.New(tidbRecordset, ts.ctx.GetSessionVars().PreparedStmts[ts.id].(*core.PlanCacheStmt), args)
 	return
 }
 
@@ -278,13 +284,54 @@ func (tc *TiDBContext) checkSandBoxMode(stmt ast.StmtNode) error {
 	return nil
 }
 
-// ExecuteStmt implements QueryCtx interface.
 func (tc *TiDBContext) ExecuteStmt(ctx context.Context, stmt ast.StmtNode) (resultset.ResultSet, error) {
 	var rs sqlexec.RecordSet
 	var err error
+	var args []expression.Expression
 	if err = tc.checkSandBoxMode(stmt); err != nil {
 		return nil, err
 	}
+
+	// 尝试走查询缓存，日志根据resultset的类型判断是否走查询缓存
+	if execStmt, ok := stmt.(*ast.ExecuteStmt); ok {
+		sessionVars := tc.Session.GetSessionVars()
+		args, err = expression.ExecBinaryParam(sessionVars.StmtCtx.TypeCtx(), execStmt.BinaryArgs.([]param.BinaryParam))
+		if err != nil {
+			return nil, err
+		}
+		prepareStmt, err := plannercore.GetPreparedStmt(execStmt, sessionVars)
+		if err != nil {
+			return nil, err
+		}
+		stmtLabel := ast.GetStmtLabel(prepareStmt.PreparedAst.Stmt)
+
+		//[2025/04/14 10:56:33.512 +08:00] [INFO] [driver_tidb.go:312] [IsReadOnly(stmt)] [IsReadOnly=false]
+		logutil.BgLogger().Info("IsReadOnly(stmt)", zap.Bool("IsReadOnly", ast.IsReadOnly(stmt)))
+		// [driver_tidb.go:313] [stmtLabel] [stmtLabel=Select]
+		logutil.BgLogger().Info("stmtLabel", zap.String("stmtLabel", stmtLabel))
+
+		// isReadonly/是select语句 + 开启了querycache
+		//if ast.IsReadOnly(stmt) stmtLabel == "select" && querycache.CheckQueryCache(sessionVars) {
+		if stmtLabel == "Select" {
+			queryKey := querycache.NewQueryCacheKey(execStmt.Text(), args)
+			// logutil.BgLogger().Info("args", zap.Any("args", args))
+			// for _, arg := range args {
+			// 	logutil.BgLogger().Info("arg", zap.Any("arg", arg))
+			// 	logutil.BgLogger().Info("arg.HashCode()", zap.Any("arg.HashCode()", arg.HashCode()))
+			// }
+			logutil.BgLogger().Info("Query Cache Try Get key = ", zap.Any("key", queryKey))
+			// 如果Get到了一个result，则直接返回
+			if result, err := querycache.Get(queryKey); result != nil && result.Chunk != nil && err == nil {
+				qcrs := querycache.NewQueryCacheRecordSet(result)
+				logutil.BgLogger().Info("Successfully Get Query Cache which key = ", zap.Any("key", queryKey))
+				rsType := reflect.TypeOf(qcrs).String()
+				// 读日志的时候读到这，证明一个select请求走了query cache
+				logutil.BgLogger().Info("rsType-querycache", zap.Any("rsType", rsType))
+				return resultset.NewQueryCacheResultSet(qcrs, nil), nil
+			}
+		}
+	}
+
 	if s, ok := stmt.(*ast.NonTransactionalDMLStmt); ok {
 		rs, err = session.HandleNonTransactionalDML(ctx, s, tc.Session)
 	} else {
@@ -297,7 +344,10 @@ func (tc *TiDBContext) ExecuteStmt(ctx context.Context, stmt ast.StmtNode) (resu
 	if rs == nil {
 		return nil, nil
 	}
-	return resultset.New(rs, nil), nil
+	rsType := reflect.TypeOf(rs).String()
+	// 读日志的时候读到这，证明一个select请求没走query cache
+	logutil.BgLogger().Info("rsType-execute", zap.Any("rsType", rsType))
+	return resultset.New(rs, nil, args), nil
 }
 
 // Close implements QueryCtx Close method.

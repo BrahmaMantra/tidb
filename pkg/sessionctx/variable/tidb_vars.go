@@ -987,6 +987,17 @@ const (
 	// TiDBEnableSharedLockPromotion indicates whether the `select for share` statement would be executed
 	// as `select for update` statements which do acquire pessimistic locks.
 	TiDBEnableSharedLockPromotion = "tidb_enable_shared_lock_promotion"
+	// TiDBEnableQueryCache indicates whether to enable query cache.
+	TiDBEnableQueryCache = "tidb_enable_query_cache"
+
+	// TiDBQueryCacheSize is the size of the query cache.(MB)
+	TiDBQueryCacheSize = "tidb_query_cache_size"
+
+	// TiDBQueryCacheResultMAX is the max size of the query cache result.(B)
+	TiDBQueryCacheResultMAX = "tidb_query_cache_result_max"
+
+	// TiDBQueryCacheTTL is the TTL of the query cache.(s)
+	TiDBQueryCacheTTL = "tidb_query_cache_ttl"
 )
 
 // TiDB vars that have only global scope
@@ -1568,6 +1579,10 @@ const (
 	DefOptEnableProjectionPushDown                    = true
 	DefTiDBEnableSharedLockPromotion                  = false
 	DefTiDBTSOClientRPCMode                           = TSOClientRPCModeDefault
+	DefTiDBEnableQueryCache                           = true
+	DefTiDBQueryCacheSize                             = 256 //MB
+	DefTiDBQueryCacheResultMAX                        = 32  //KB
+	DefTiDBQueryCacheTTL                              = 600 //s
 )
 
 // Process global variables.
@@ -1724,7 +1739,11 @@ var (
 	// EnableStatsOwner is the func registered by stats to enable running stats in this instance.
 	EnableStatsOwner func() error = nil
 	// DisableStatsOwner is the func registered by stats to disable running stats in this instance.
-	DisableStatsOwner func() error = nil
+	DisableStatsOwner   func() error = nil
+	EnableQueryCache                 = atomic.NewBool(DefTiDBEnableQueryCache)
+	QueryCacheSize                   = atomic.NewInt32(DefTiDBQueryCacheSize)
+	QueryCacheResultMAX              = atomic.NewInt32(DefTiDBQueryCacheResultMAX)
+	QueryCacheTTL                    = atomic.NewInt32(DefTiDBQueryCacheTTL)
 )
 
 // Hooks functions for Cluster Resource Control.

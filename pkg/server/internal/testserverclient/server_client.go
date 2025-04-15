@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	goLog "log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -31,6 +32,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,6 +47,7 @@ import (
 	"github.com/pingcap/tidb/pkg/metrics"
 	tmysql "github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/server"
+	"github.com/pingcap/tidb/pkg/server/querycache"
 	"github.com/pingcap/tidb/pkg/sessionctx/sessionstates"
 	"github.com/pingcap/tidb/pkg/testkit"
 	"github.com/pingcap/tidb/pkg/testkit/testenv"
@@ -381,6 +384,284 @@ func (cli *TestServerClient) RunTestPreparedTimestamp(t *testing.T) {
 		require.Equal(t, "23:59:59", outB)
 		require.NoError(t, rows.Close())
 		require.NoError(t, selectStmt.Close())
+	})
+}
+
+// func (cli *TestServerClient) RunTestPreparedStmt(t *testing.T) {
+// 	cli.RunTestsOnNewDB(t, nil, "query_cache_db", func(dbt *testkit.DBTestKit) {
+// 		dbt.MustExec("create table t1 (a int key, b int)")
+// 		dbt.MustExec("insert into t1 values (1,1), (2,2)")
+// 		dbt.GetDB().SetMaxOpenConns(1)
+// 		selectStmt := dbt.MustPrepare("select * from t1 where a = ?")
+
+// 		goLog.Println("Querying with select * from t1 where a = 1")
+// 		rows := dbt.MustQueryPrepared(selectStmt, 1)
+// 		require.True(t, rows.Next())
+// 		var outA, outB int
+// 		err := rows.Scan(&outA, &outB)
+// 		require.NoError(t, err)
+// 		require.Equal(t, 1, outA)
+// 		require.Equal(t, 1, outB)
+// 		require.NoError(t, rows.Close())
+
+// 		goLog.Println("Querying with select * from t1 where a = 1")
+// 		rows = dbt.MustQueryPrepared(selectStmt, 1)
+// 		require.True(t, rows.Next())
+// 		err = rows.Scan(&outA, &outB)
+// 		require.NoError(t, err)
+// 		require.Equal(t, 1, outA)
+// 		require.Equal(t, 1, outB)
+// 		require.NoError(t, rows.Close())
+
+// 		goLog.Println("Querying with select * from t1 where a = 2")
+// 		rows = dbt.MustQueryPrepared(selectStmt, 2)
+// 		require.True(t, rows.Next())
+// 		err = rows.Scan(&outA, &outB)
+// 		require.NoError(t, err)
+// 		require.Equal(t, 2, outA)
+// 		require.Equal(t, 2, outB)
+// 		require.NoError(t, rows.Close())
+
+// 		// Test read in txn.
+// 		goLog.Println("Querying with begin")
+// 		dbt.MustExec("begin")
+// 		goLog.Println("Querying with select * from t1 where a = 1")
+// 		rows = dbt.MustQueryPrepared(selectStmt, 1)
+// 		require.True(t, rows.Next())
+// 		err = rows.Scan(&outA, &outB)
+// 		require.NoError(t, err)
+// 		require.Equal(t, 1, outA)
+// 		require.Equal(t, 1, outB)
+// 		require.NoError(t, rows.Close())
+
+// 		goLog.Println("Querying with update t1 set b=2 where a=1")
+// 		dbt.MustExec("update t1 set b=2 where a=1")
+// 		rows = dbt.MustQueryPrepared(selectStmt, 1)
+// 		require.True(t, rows.Next())
+// 		err = rows.Scan(&outA, &outB)
+// 		require.NoError(t, err)
+// 		require.Equal(t, 1, outA)
+// 		require.Equal(t, 2, outB)
+// 		require.NoError(t, rows.Close())
+// 		goLog.Println("Querying with rollback")
+// 		dbt.MustExec("rollback")
+// 		require.NoError(t, selectStmt.Close())
+
+// 		goLog.Println("Querying with select * from t1 where b = 1")
+// 		selectStmt = dbt.MustPrepare("select * from t1 where b = ?")
+// 		rows = dbt.MustQueryPrepared(selectStmt, 1)
+// 		require.True(t, rows.Next())
+// 		err = rows.Scan(&outA, &outB)
+// 		require.NoError(t, err)
+// 		require.Equal(t, 1, outA)
+// 		require.Equal(t, 1, outB)
+// 		require.NoError(t, rows.Close())
+
+// 		goLog.Println("Querying with select * from t1 where b = 1")
+// 		rows = dbt.MustQueryPrepared(selectStmt, 1)
+// 		require.True(t, rows.Next())
+// 		err = rows.Scan(&outA, &outB)
+// 		require.NoError(t, err)
+// 		require.Equal(t, 1, outA)
+// 		require.Equal(t, 1, outB)
+// 		require.NoError(t, rows.Close())
+
+// 		goLog.Println("Querying with select * from t1 where b = 2")
+// 		rows = dbt.MustQueryPrepared(selectStmt, 2)
+// 		require.True(t, rows.Next())
+// 		err = rows.Scan(&outA, &outB)
+// 		require.NoError(t, err)
+// 		require.Equal(t, 2, outA)
+// 		require.Equal(t, 2, outB)
+// 		require.NoError(t, rows.Close())
+
+//			goLog.Println("Querying with select * from t1 where a = 1")
+//			rows = dbt.MustQueryPrepared(selectStmt, 1)
+//			require.True(t, rows.Next())
+//			err = rows.Scan(&outA, &outB)
+//			require.NoError(t, err)
+//			require.Equal(t, 1, outA)
+//			require.Equal(t, 1, outB)
+//			require.NoError(t, rows.Close())
+//		})
+//	}
+func (cli *TestServerClient) RunTestPreparedStmt(t *testing.T) {
+	cli.RunTestsOnNewDB(t, nil, "query_cache_db", func(dbt *testkit.DBTestKit) {
+		dbt.MustExec("create table t1 (a int key, b int)")
+		dbt.MustExec("insert into t1 values (1,1), (2,2)")
+		dbt.GetDB().SetMaxOpenConns(1)
+
+		getCacheCnt := atomic.Int64{}
+		hitCacheCnt := atomic.Int64{}
+		addCacheCnt := atomic.Int64{}
+		execCnt := int64(0)
+		testfailpoint.EnableCall(t, "github.com/pingcap/tidb/pkg/server/querycache/AfterGetQueryCache", func(key *querycache.QueryCacheKey, value *querycache.QueryCacheResult) {
+			goLog.Printf("AfterGetQueryCache is excueting , key = %v, value = %v", key, value)
+			// panic("AfterGetQueryCache is excueting...")
+			if strings.Contains(key.Sql, "select * from t1 where") {
+				getCacheCnt.Add(1)
+				if value != nil && value.Chunk != nil {
+					hitCacheCnt.Add(1)
+				}
+			}
+		})
+		testfailpoint.EnableCall(t, "github.com/pingcap/tidb/pkg/server/querycache/AfterAddQueryCache", func(key *querycache.QueryCacheKey, value *querycache.QueryCacheResult) {
+			goLog.Printf("AfterAddQueryCache key = %v, value = %v", key, value)
+			if strings.Contains(key.Sql, "select * from t1 where") {
+				addCacheCnt.Add(1)
+			}
+		})
+
+		resetCounterFn := func() {
+			getCacheCnt.Store(0)
+			hitCacheCnt.Store(0)
+			addCacheCnt.Store(0)
+		}
+		selectStmt := dbt.MustPrepare("select * from t1 where a = ?")
+		goLog.Printf("execCnt = %d,sql = %s", execCnt, "select * from t1 where a = 1")
+		execCnt++
+		rows := dbt.MustQueryPrepared(selectStmt, 1)
+		require.True(t, rows.Next())
+		var outA, outB int
+		err := rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 1, outA)
+		require.Equal(t, 1, outB)
+		require.NoError(t, rows.Close())
+		require.Equal(t, int64(1), getCacheCnt.Load())
+		require.Equal(t, int64(0), hitCacheCnt.Load())
+		require.Equal(t, int64(1), addCacheCnt.Load())
+
+		resetCounterFn()
+		goLog.Printf("execCnt = %d,sql = %s", execCnt, "select * from t1 where a = 1")
+		execCnt++
+		rows = dbt.MustQueryPrepared(selectStmt, 1)
+		require.True(t, rows.Next())
+		err = rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 1, outA)
+		require.Equal(t, 1, outB)
+		require.NoError(t, rows.Close())
+		require.Equal(t, int64(1), getCacheCnt.Load())
+		require.Equal(t, int64(1), hitCacheCnt.Load())
+		require.Equal(t, int64(0), addCacheCnt.Load())
+
+		resetCounterFn()
+		goLog.Printf("execCnt = %d,sql = %s", execCnt, "select * from t1 where a = 2")
+		execCnt++
+		rows = dbt.MustQueryPrepared(selectStmt, 2)
+		require.True(t, rows.Next())
+		err = rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 2, outA)
+		require.Equal(t, 2, outB)
+		require.NoError(t, rows.Close())
+		require.Equal(t, int64(1), getCacheCnt.Load())
+		require.Equal(t, int64(0), hitCacheCnt.Load())
+		require.Equal(t, int64(1), addCacheCnt.Load())
+
+		// // Test read in txn.
+		// resetCounterFn()
+		// goLog.Printf("execCnt = %d,sql = %s", execCnt, "begin")
+		// execCnt++
+
+		// dbt.MustExec("begin")
+		// goLog.Printf("execCnt = %d,sql = %s", execCnt, "update t1 set b=2 where a=1")
+		// execCnt++
+
+		// dbt.MustExec("update t1 set b=2 where a=1")
+		// goLog.Printf("execCnt = %d,sql = %s", execCnt, "select * from t1 where a = 1")
+		// execCnt++
+		// rows = dbt.MustQueryPrepared(selectStmt, 1)
+
+		// require.True(t, rows.Next())
+		// err = rows.Scan(&outA, &outB)
+		// require.NoError(t, err)
+		// require.Equal(t, 1, outA)
+		// require.Equal(t, 2, outB)
+		// require.NoError(t, rows.Close())
+
+		// goLog.Printf("execCnt = %d,sql = %s", execCnt, "rollback")
+		// execCnt++
+
+		// dbt.MustExec("rollback")
+		require.NoError(t, selectStmt.Close())
+		// require.Equal(t, int64(0), getCacheCnt.Load())
+		require.Equal(t, int64(0), hitCacheCnt.Load())
+		// require.Equal(t, int64(0), addCacheCnt.Load())
+
+		resetCounterFn()
+		selectStmt = dbt.MustPrepare("select * from t1 where b = ?")
+		goLog.Printf("execCnt = %d,sql = %s", execCnt, "select * from t1 where b = 1")
+		execCnt++
+		rows = dbt.MustQueryPrepared(selectStmt, 1)
+		require.True(t, rows.Next())
+		err = rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 1, outA)
+		require.Equal(t, 1, outB)
+		require.NoError(t, rows.Close())
+		require.Equal(t, int64(1), getCacheCnt.Load())
+		require.Equal(t, int64(0), hitCacheCnt.Load())
+		require.Equal(t, int64(1), addCacheCnt.Load())
+
+		resetCounterFn()
+		goLog.Printf("execCnt = %d,sql = %s", execCnt, "select * from t1 where b = 1")
+		execCnt++
+		rows = dbt.MustQueryPrepared(selectStmt, 1)
+		require.True(t, rows.Next())
+		err = rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 1, outA)
+		require.Equal(t, 1, outB)
+		require.NoError(t, rows.Close())
+		require.Equal(t, int64(1), getCacheCnt.Load())
+		require.Equal(t, int64(1), hitCacheCnt.Load())
+		require.Equal(t, int64(0), addCacheCnt.Load())
+
+		resetCounterFn()
+		goLog.Printf("execCnt = %d,sql = %s", execCnt, "select * from t1 where b = 2")
+		execCnt++
+		rows = dbt.MustQueryPrepared(selectStmt, 2)
+
+		require.True(t, rows.Next())
+		err = rows.Scan(&outA, &outB)
+		require.NoError(t, err)
+		require.Equal(t, 2, outA)
+		require.Equal(t, 2, outB)
+		require.NoError(t, rows.Close())
+		require.Equal(t, int64(1), getCacheCnt.Load())
+		require.Equal(t, int64(0), hitCacheCnt.Load())
+		require.Equal(t, int64(1), addCacheCnt.Load())
+
+		// Test read in txn.
+		// goLog.Println("Querying with begin")
+		// dbt.MustExec("begin")
+		// // goLog.Println("Querying with select * from t1 where a = 1")
+		// // rows := dbt.MustQueryPrepared(selectStmt, 1)
+		// // require.True(t, rows.Next())
+		// var outA, outB int
+		// // err := rows.Scan(&outA, &outB)
+		// // require.NoError(t, err)
+		// // require.Equal(t, 1, outA)
+		// // require.Equal(t, 1, outB)
+		// // require.NoError(t, rows.Close())
+		// resetCounterFn()
+
+		// goLog.Println("Querying with update t1 set b=2 where a=1")
+		// dbt.MustExec("update t1 set b=2 where a=1")
+		// rows := dbt.MustQueryPrepared(selectStmt, 1)
+		// require.True(t, rows.Next())
+		// err := rows.Scan(&outA, &outB)
+		// require.NoError(t, err)
+		// require.Equal(t, 1, outA)
+		// require.Equal(t, 2, outB)
+		// require.NoError(t, rows.Close())
+		// goLog.Println("Querying with rollback")
+		// dbt.MustExec("rollback")
+		// require.NoError(t, selectStmt.Close())
+		testfailpoint.Disable(t, "github.com/pingcap/tidb/pkg/server/querycache/AfterGetQueryCache")
+		testfailpoint.Disable(t, "github.com/pingcap/tidb/pkg/server/querycache/AfterAddQueryCache")
 	})
 }
 

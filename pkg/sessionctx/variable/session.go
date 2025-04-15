@@ -1103,6 +1103,18 @@ type SessionVars struct {
 	// EnableOuterJoinWithJoinReorder enables TiDB to involve the outer join into the join reorder.
 	EnableOuterJoinReorder bool
 
+	// EnableQueryCache enables the query cache.
+	EnableQueryCache bool
+
+	// QueryCacheSize is the size of the query cache.(MB)
+	QueryCacheSize int
+
+	// QueryCacheResultMAX is the size of the query cache result.(B)
+	QueryCacheResultMAX int
+
+	// QueryCacheTTL is the TTL of the query cache.(s)
+	QueryCacheTTL int
+
 	// OptimizerEnableNAAJ enables TiDB to use null-aware anti join.
 	OptimizerEnableNAAJ bool
 

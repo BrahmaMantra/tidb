@@ -94,3 +94,18 @@ func (checker *readOnlyChecker) Enter(in Node) (out Node, skipChildren bool) {
 func (checker *readOnlyChecker) Leave(in Node) (out Node, ok bool) {
 	return in, checker.readOnly
 }
+func IsReadOnlySelect(node Node) bool {
+	switch st := node.(type) {
+	case *SelectStmt:
+		if st.LockInfo != nil {
+			return false
+		}
+		checker := readOnlyChecker{
+			readOnly: true,
+		}
+		node.Accept(&checker)
+		return checker.readOnly
+	default:
+		return false
+	}
+}

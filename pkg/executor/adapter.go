@@ -53,6 +53,7 @@ import (
 	"github.com/pingcap/tidb/pkg/planner/core/operator/logicalop"
 	"github.com/pingcap/tidb/pkg/planner/core/resolve"
 	"github.com/pingcap/tidb/pkg/plugin"
+	"github.com/pingcap/tidb/pkg/server/querycache"
 	"github.com/pingcap/tidb/pkg/sessionctx"
 	"github.com/pingcap/tidb/pkg/sessionctx/sessionstates"
 	"github.com/pingcap/tidb/pkg/sessionctx/stmtctx"
@@ -103,6 +104,7 @@ type recordSet struct {
 	lastErrs   []error
 	txnStartTS uint64
 	once       sync.Once
+	cacheable  bool
 }
 
 func (a *recordSet) Fields() []*resolve.ResultField {
@@ -111,7 +113,9 @@ func (a *recordSet) Fields() []*resolve.ResultField {
 	}
 	return a.fields
 }
-
+func (a *recordSet) IsQueryCacheable() bool {
+	return a.cacheable
+}
 func colNames2ResultFields(schema *expression.Schema, names []*types.FieldName, defaultDB string) []*resolve.ResultField {
 	rfs := make([]*resolve.ResultField, 0, schema.Len())
 	defaultDBCIStr := pmodel.NewCIStr(defaultDB)
@@ -367,12 +371,17 @@ func (a *ExecStmt) PointGet(ctx context.Context) (*recordSet, error) {
 			sctx.GetSessionVars().StmtCtx.StmtType = ast.GetStmtLabel(a.StmtNode)
 		}
 	}
-
+	cacheable := false
+	txn, _ := sctx.Txn(false)
+	if err == nil {
+		cacheable = StmtQueryCacheable(a.Ctx, txn, a.StmtNode)
+	}
 	return &recordSet{
 		executor:   executor,
 		schema:     executor.Schema(),
 		stmt:       a,
 		txnStartTS: startTs,
+		cacheable:  cacheable,
 	}, nil
 }
 
@@ -627,7 +636,30 @@ func (a *ExecStmt) Exec(ctx context.Context) (_ sqlexec.RecordSet, err error) {
 		schema:     e.Schema(),
 		stmt:       a,
 		txnStartTS: txnStartTS,
+		cacheable:  StmtQueryCacheable(a.Ctx, txn, a.StmtNode),
 	}, nil
+}
+func StmtQueryCacheable(ctx sessionctx.Context, txn kv.Transaction, stmt ast.StmtNode) bool {
+	if !querycache.IsEnable() {
+		return false
+	}
+	if txn.Valid() && !txn.IsReadOnly() {
+		return false
+	}
+	if staleread.IsStmtStaleness(ctx) {
+		return false
+	}
+
+	if execStmt, ok := stmt.(*ast.ExecuteStmt); ok {
+		prepareStmt, err := plannercore.GetPreparedStmt(execStmt, ctx.GetSessionVars())
+		if err == nil && prepareStmt.PreparedAst != nil {
+			stmt = prepareStmt.PreparedAst.Stmt
+		}
+	}
+	if !ast.IsReadOnlySelect(stmt) {
+		return false
+	}
+	return true
 }
 
 func (a *ExecStmt) inheritContextFromExecuteStmt() {
