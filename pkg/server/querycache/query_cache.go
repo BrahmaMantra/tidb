@@ -22,6 +22,7 @@ import (
 
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/tidb/pkg/expression"
+	"github.com/pingcap/tidb/pkg/metrics"
 	"github.com/pingcap/tidb/pkg/planner/core/resolve"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/types"
@@ -41,7 +42,6 @@ var (
 		queryCacheResultMAX: variable.DefTiDBQueryCacheResultMAX * int64(size.KB),
 		IsEnable:            true,
 		ttl:                 int64(variable.DefTiDBQueryCacheTTL),
-		hook:                newQueryCacheStatusHookImpl(),
 	}
 	QueryCacheOnce sync.Once
 )
@@ -65,7 +65,6 @@ type QueryCache struct {
 	//其它
 	IsEnable bool
 	ttl      int64
-	hook     *queryCacheStatusHookImpl
 }
 
 func IsEnable() bool {
@@ -208,11 +207,11 @@ func Get(key *QueryCacheKey) (*QueryCacheResult, error) {
 	}()
 	value, hit := GlobalQueryCache.get(key)
 	if !hit {
-		GlobalQueryCache.hook.onMiss()
+		metrics.QueryCacheMissCounter.Inc()
 		return nil, nil
 	}
 	typedValue = value.(*QueryCacheResult)
-	GlobalQueryCache.hook.onHit()
+	metrics.QueryCacheHitCounter.Inc()
 	return typedValue, nil
 }
 
@@ -249,7 +248,7 @@ func Set(key *QueryCacheKey, value *QueryCacheResult) (bool, error) {
 			// logutil.BgLogger().Error("evictedKey is not *QueryCacheKey", zap.Any("evictedKey", evictedKey))
 			return false, nil
 		}
-		GlobalQueryCache.hook.onEvict()
+		metrics.QueryCacheEvictCounter.Inc()
 		GlobalQueryCache.evictQuery(evictedQuery)
 	}
 
@@ -268,7 +267,6 @@ func Set(key *QueryCacheKey, value *QueryCacheResult) (bool, error) {
 		tableQueryMap.(*sync.Map).Store(key, struct{}{})
 	}
 	// logutil.BgLogger().Info("Set() put key successfully ")
-	GlobalQueryCache.hook.onUpdateSize(int64(GlobalQueryCache.memSize))
 	return true, nil
 }
 

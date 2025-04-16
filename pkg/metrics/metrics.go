@@ -290,11 +290,9 @@ func RegisterMetrics() {
 	prometheus.MustRegister(InfoSchemaV2CacheMemLimit)
 	prometheus.MustRegister(TableByNameDuration)
 
-	prometheus.MustRegister(QueryCacheCounter)
-	prometheus.MustRegister(QueryCacheMemoryUsage)
-	prometheus.MustRegister(QueryCacheMemLimit)
-	prometheus.MustRegister(QueryCacheCount)
-	prometheus.MustRegister(QueryCacheDuration)
+	prometheus.MustRegister(QueryCacheHitCounter)
+	prometheus.MustRegister(QueryCacheMissCounter)
+	prometheus.MustRegister(QueryCacheEvictCounter)
 
 	prometheus.MustRegister(BindingCacheHitCounter)
 	prometheus.MustRegister(BindingCacheMissCounter)
