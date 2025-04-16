@@ -96,6 +96,7 @@ func InitMetrics() {
 	InitResourceGroupMetrics()
 	InitGlobalSortMetrics()
 	InitInfoSchemaV2Metrics()
+	InitQueryCacheMetrics()
 	timermetrics.InitTimerMetrics()
 
 	PanicCounter = NewCounterVec(
@@ -288,6 +289,11 @@ func RegisterMetrics() {
 	prometheus.MustRegister(InfoSchemaV2CacheMemUsage)
 	prometheus.MustRegister(InfoSchemaV2CacheMemLimit)
 	prometheus.MustRegister(TableByNameDuration)
+
+	prometheus.MustRegister(QueryCacheCounter)
+	prometheus.MustRegister(QueryCacheMemory)
+	prometheus.MustRegister(QueryCacheCount)
+	prometheus.MustRegister(QueryCacheHitRatio)
 
 	prometheus.MustRegister(BindingCacheHitCounter)
 	prometheus.MustRegister(BindingCacheMissCounter)

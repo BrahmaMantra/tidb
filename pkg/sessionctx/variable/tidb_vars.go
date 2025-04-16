@@ -1580,7 +1580,7 @@ const (
 	DefTiDBEnableSharedLockPromotion                  = false
 	DefTiDBTSOClientRPCMode                           = TSOClientRPCModeDefault
 	DefTiDBEnableQueryCache                           = true
-	DefTiDBQueryCacheSize                             = 24  //MB
+	DefTiDBQueryCacheSize                             = 512 //MB
 	DefTiDBQueryCacheResultMAX                        = 32  //KB
 	DefTiDBQueryCacheTTL                              = 600 //s
 )
