@@ -27,9 +27,11 @@ import (
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	"github.com/pingcap/tidb/pkg/util/kvcache"
+	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/mathutil"
 	"github.com/pingcap/tidb/pkg/util/size"
 	"github.com/pingcap/tidb/pkg/util/syncutil"
+	"go.uber.org/zap"
 )
 
 var (
@@ -37,9 +39,10 @@ var (
 		cache:               kvcache.NewSimpleLRUCache(mathutil.MaxUint, 0.1, 0),
 		queriesMap:          sync.Map{},
 		tablesMap:           sync.Map{},
-		memCapacity:         uint64(variable.DefTiDBQueryCacheSize) * size.MB,
-		queryCacheResultMAX: uint64(variable.DefTiDBQueryCacheResultMAX) * size.KB,
+		memCapacity:         variable.DefTiDBQueryCacheSize * int64(size.MB),
+		queryCacheResultMAX: variable.DefTiDBQueryCacheResultMAX * int64(size.KB),
 		IsEnable:            true,
+		ttl:                 int64(variable.DefTiDBQueryCacheTTL),
 	}
 	QueryCacheOnce sync.Once
 )
@@ -56,20 +59,20 @@ type QueryCache struct {
 	tablesMap sync.Map // int64 -> map[*QueryCacheKey]struct{}
 
 	// 统计信息
-	memCapacity         uint64 // 总缓存大小
-	queryCacheResultMAX uint64 // 单个查询结果最大缓存大小
-	memSize             uint64 // 已使用缓存大小
+	memCapacity         int64 // 总缓存大小
+	queryCacheResultMAX int64 // 单个查询结果最大缓存大小
+	memSize             int64 // 已使用缓存大小
 
 	//其它
 	IsEnable bool
-	ttl      uint64
+	ttl      int64
 }
 
 func IsEnable() bool {
 	return true
 	// return GlobalQueryCache.IsEnable
 }
-func QueryCacheResultMAX() uint64 {
+func QueryCacheResultMAX() int64 {
 	return GlobalQueryCache.queryCacheResultMAX
 }
 
@@ -168,9 +171,10 @@ func (c *QueryCache) get(key *QueryCacheKey) (value kvcache.Value, ok bool) {
 	return c.cache.Get(key)
 }
 
-func (c *QueryCache) put(key *QueryCacheKey, val kvcache.Value) {
+func (c *QueryCache) put(key *QueryCacheKey, val *QueryCacheResult) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+	c.memSize += val.size()
 	c.cache.Put(key, val)
 }
 
@@ -231,8 +235,8 @@ func Set(key *QueryCacheKey, value *QueryCacheResult) (bool, error) {
 		return false, nil
 	}
 
-	for mem+GlobalQueryCache.size() > int64(GlobalQueryCache.memCapacity) {
-		// logutil.BgLogger().Info("mem+GlobalQueryCache.size() > int64(GlobalQueryCache.memCapacity)", zap.Int64("mem", mem), zap.Int64("GlobalQueryCache.size()", GlobalQueryCache.size()), zap.Int64("GlobalQueryCache.memCapacity", int64(GlobalQueryCache.memCapacity)))
+	logutil.BgLogger().Info("memInfo)", zap.Int64("mem", mem), zap.Int64("GlobalQueryCache.size()", int64(GlobalQueryCache.memSize)), zap.Int64("GlobalQueryCache.memCapacity", int64(GlobalQueryCache.memCapacity)))
+	for mem+int64(GlobalQueryCache.memSize) > int64(GlobalQueryCache.memCapacity) {
 		evictedKey, _, evicted := GlobalQueryCache.removeOldest()
 		if !evicted {
 			return false, nil
@@ -263,10 +267,6 @@ func Set(key *QueryCacheKey, value *QueryCacheResult) (bool, error) {
 
 	// logutil.BgLogger().Info("Set() put key successfully ")
 	return true, nil
-}
-
-func (c *QueryCache) size() int64 {
-	return int64(c.memSize)
 }
 
 type QueryCacheResult struct {
@@ -312,6 +312,7 @@ func EvictQuerysByTableID(tableID int64) {
 
 // 需要先拿到锁才能执行这个！
 // 删除一个query cache result
+// 删除所有map里面key为key的条目
 func (c *QueryCache) evictQuery(key *QueryCacheKey) {
 	// Get the result before deleting
 	resultVal, ok := c.queriesMap.Load(key)
@@ -320,7 +321,7 @@ func (c *QueryCache) evictQuery(key *QueryCacheKey) {
 	}
 	result := resultVal.(*QueryCacheResult)
 
-	c.cache.Delete(key)
+	c.memSize -= result.size()
 
 	// 从 tablesMap 中删除该 tableID 的条目
 	for _, tableID := range result.tables {

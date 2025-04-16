@@ -114,7 +114,7 @@ func (trs *tidbResultSet) Next(ctx context.Context, req *chunk.Chunk) error {
 		// logutil.BgLogger().Info("Next():trs.chunks append newChunk ", zap.Any("trs.chunks", trs.chunks), zap.Any("newChunk", newChunk))
 		trs.chunks = append(trs.chunks, newChunk)
 		size := cacheMemUsage(trs.chunks)
-		if uint64(size) >= querycache.QueryCacheResultMAX() {
+		if int64(size) >= querycache.QueryCacheResultMAX() {
 			trs.useQueryCache = false
 			// logutil.BgLogger().Info("size > querycache.QueryCacheResultMAX()", zap.Uint64("size", uint64(size)), zap.Uint64("querycache.QueryCacheResultMAX()", querycache.QueryCacheResultMAX()))
 			// logutil.BgLogger().Info("trs.useQueryCache = ", zap.Bool("useQueryCache", trs.useQueryCache))
