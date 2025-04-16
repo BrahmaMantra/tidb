@@ -22,7 +22,6 @@ import (
 
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/tidb/pkg/expression"
-	"github.com/pingcap/tidb/pkg/metrics"
 	"github.com/pingcap/tidb/pkg/planner/core/resolve"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/types"
@@ -31,7 +30,6 @@ import (
 	"github.com/pingcap/tidb/pkg/util/mathutil"
 	"github.com/pingcap/tidb/pkg/util/size"
 	"github.com/pingcap/tidb/pkg/util/syncutil"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 var (
@@ -43,34 +41,10 @@ var (
 		queryCacheResultMAX: variable.DefTiDBQueryCacheResultMAX * int64(size.KB),
 		IsEnable:            true,
 		ttl:                 int64(variable.DefTiDBQueryCacheTTL),
+		hook:                newQueryCacheStatusHookImpl(),
 	}
 	QueryCacheOnce sync.Once
 )
-
-// CacheCounters holds references to the individual counter metrics for easy access
-var QueryCacheCounters = struct {
-	Hit   prometheus.Counter
-	Miss  prometheus.Counter
-	Evict prometheus.Counter
-}{}
-
-// Internal counters for more efficient metrics updating
-var cacheStats = struct {
-	count   int64 // Number of entries in cache
-	memSize int64 // Memory used by cache
-	sync.RWMutex
-}{
-	count:   0,
-	memSize: 0,
-}
-
-func init() {
-	// Initialize counter references
-	QueryCacheCounters.Hit = metrics.QueryCacheCounter.WithLabelValues("hit")
-	QueryCacheCounters.Miss = metrics.QueryCacheCounter.WithLabelValues("miss")
-	QueryCacheCounters.Evict = metrics.QueryCacheCounter.WithLabelValues("evict")
-
-}
 
 // 全局Query Cache入口
 type QueryCache struct {
@@ -91,6 +65,7 @@ type QueryCache struct {
 	//其它
 	IsEnable bool
 	ttl      int64
+	hook     *queryCacheStatusHookImpl
 }
 
 func IsEnable() bool {
@@ -233,13 +208,11 @@ func Get(key *QueryCacheKey) (*QueryCacheResult, error) {
 	}()
 	value, hit := GlobalQueryCache.get(key)
 	if !hit {
-		// Track cache miss in prometheus
-		QueryCacheCounters.Miss.Inc()
+		GlobalQueryCache.hook.onMiss()
 		return nil, nil
 	}
-	// Track cache hit in prometheus
-	QueryCacheCounters.Hit.Inc()
 	typedValue = value.(*QueryCacheResult)
+	GlobalQueryCache.hook.onHit()
 	return typedValue, nil
 }
 
@@ -276,11 +249,10 @@ func Set(key *QueryCacheKey, value *QueryCacheResult) (bool, error) {
 			// logutil.BgLogger().Error("evictedKey is not *QueryCacheKey", zap.Any("evictedKey", evictedKey))
 			return false, nil
 		}
-
+		GlobalQueryCache.hook.onEvict()
 		GlobalQueryCache.evictQuery(evictedQuery)
-		// Track eviction in prometheus
-		QueryCacheCounters.Evict.Inc()
 	}
+
 	// logutil.BgLogger().Info("Set() put key = ", zap.Any("key", key))
 	GlobalQueryCache.put(key, value)
 	// logutil.BgLogger().Info("Set() put value = ", zap.Any("value", value))
@@ -295,8 +267,8 @@ func Set(key *QueryCacheKey, value *QueryCacheResult) (bool, error) {
 		// Store the query in the tableID's map
 		tableQueryMap.(*sync.Map).Store(key, struct{}{})
 	}
-
 	// logutil.BgLogger().Info("Set() put key successfully ")
+	GlobalQueryCache.hook.onUpdateSize(int64(GlobalQueryCache.memSize))
 	return true, nil
 }
 
@@ -334,8 +306,6 @@ func EvictQuerysByTableID(tableID int64) {
 		// Iterate through all queries related to this table and evict them
 		tableQueryMap.Range(func(queryKey, _ interface{}) bool {
 			GlobalQueryCache.evictQuery(queryKey.(*QueryCacheKey))
-			// Track eviction in prometheus
-			QueryCacheCounters.Evict.Inc()
 			return true
 		})
 	}

@@ -21,12 +21,20 @@ import (
 var (
 	// QueryCacheCounter records the counter of query cache hit/miss/evict
 	QueryCacheCounter *prometheus.CounterVec
-	// QueryCacheMemory records the memory usage of query cache
-	QueryCacheMemory prometheus.Gauge
+	// QueryCacheMemoryUsage records the memory usage of query cache
+	QueryCacheMemoryUsage prometheus.Gauge
+	// QueryCacheMemLimit records the memory limit of query cache
+	QueryCacheMemLimit prometheus.Gauge
 	// QueryCacheCount records the number of entries in the query cache
 	QueryCacheCount prometheus.Gauge
-	// QueryCacheHitRatio records the hit ratio of the query cache
-	QueryCacheHitRatio prometheus.Gauge
+	// QueryCacheDuration records the duration of query cache hit/miss
+	QueryCacheDuration *prometheus.HistogramVec
+	// QueryCacheHitDuration records the duration of query cache hit
+	QueryCacheHitDuration prometheus.Observer
+	// QueryCacheMissDuration records the duration of query cache miss
+	QueryCacheMissDuration prometheus.Observer
+	// QueryCacheEvictDuration records the duration of query cache evict
+	QueryCacheEvictDuration prometheus.Observer
 )
 
 // InitQueryCacheMetrics initializes query cache related metrics
@@ -39,12 +47,20 @@ func InitQueryCacheMetrics() {
 			Help:      "Query cache hit, miss and eviction counter",
 		}, []string{LblType})
 
-	QueryCacheMemory = NewGauge(
+	QueryCacheMemoryUsage = NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: "tidb",
 			Subsystem: "server",
 			Name:      "query_cache_memory",
 			Help:      "Query cache memory usage in bytes",
+		})
+
+	QueryCacheMemLimit = NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "tidb",
+			Subsystem: "server",
+			Name:      "query_cache_mem_limit",
+			Help:      "Query cache memory limit in bytes",
 		})
 
 	QueryCacheCount = NewGauge(
@@ -55,11 +71,15 @@ func InitQueryCacheMetrics() {
 			Help:      "Number of queries in cache",
 		})
 
-	QueryCacheHitRatio = NewGauge(
-		prometheus.GaugeOpts{
+	QueryCacheDuration = NewHistogramVec(
+		prometheus.HistogramOpts{
 			Namespace: "tidb",
 			Subsystem: "server",
-			Name:      "query_cache_hit_ratio",
-			Help:      "Query cache hit ratio (0.0-1.0)",
-		})
+			Name:      "query_cache_duration_nanoseconds",
+			Help:      "Query cache duration in nanoseconds",
+			Buckets:   prometheus.ExponentialBuckets(1, 2, 30), // 1us ~ 1,000,000us
+		}, []string{LblType})
+
+	QueryCacheHitDuration = QueryCacheDuration.WithLabelValues("hit")
+	QueryCacheMissDuration = QueryCacheDuration.WithLabelValues("miss")
 }
