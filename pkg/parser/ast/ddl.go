@@ -1152,7 +1152,7 @@ type CreateTableStmt struct {
 	Partition      *PartitionOptions
 	OnDuplicate    OnDuplicateKeyHandlingType
 
-	// used for CTAS
+	// used for CREATE TABLE AS SELECT (CTAS)
 	Select        ResultSetNode
 	SelectColumns []*CIStr
 }
