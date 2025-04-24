@@ -967,7 +967,7 @@ func TestCreateTableAsSelect(t *testing.T) {
 		"  KEY `idx_b` (`b`)\n" +
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin"))
 
-	// Case 11: Create table with foreign key (should fail as CTAS doesn't support FK)
+	// Case 11: Create table with foreign key (should fail as CREATE TABLE AS SELECT (CTAS) doesn't support foriegn key)
 	tk.MustGetErrCode("create table t11 (id int(11) primary key, b int, name varchar(20), "+
 		"constraint fk_name foreign key (id) references t_ref(id)) as "+
 		"select t1.id, t1.b, ErrForeignKeyWithAtomicCreateSelect.name from t1 join t_ref on t1.id = t_ref.id;",

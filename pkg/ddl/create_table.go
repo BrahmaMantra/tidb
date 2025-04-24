@@ -173,9 +173,9 @@ func (w *worker) onCreateTable(jobCtx *jobContext, job *model.Job) (ver int64, _
 	if len(tbInfo.ForeignKeys) > 0 {
 		return w.createTableWithForeignKeys(jobCtx, job, args)
 	}
-	// if args.Sql != "" {
-	// 	return w.createTableWithSelect(jobCtx, job, args)
-	// }
+	if args.Sql != "" {
+		return w.createTableWithSelect(jobCtx, job, args)
+	}
 
 	tbInfo, err = createTable(jobCtx, job, args)
 	if err != nil {
@@ -197,6 +197,7 @@ func (w *worker) onCreateTable(jobCtx *jobContext, job *model.Job) (ver int64, _
 
 }
 
+// FIXME:Now this function is not correctly
 func (w *worker) createTableWithSelect(jobCtx *jobContext, job *model.Job, args *model.CreateTableArgs) (ver int64, err error) {
 	tbInfo := args.TableInfo
 	// 1. create sql
