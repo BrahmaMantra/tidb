@@ -331,6 +331,7 @@ func (do *Domain) loadInfoSchema(startTS uint64, isSnapshot bool) (infoschema.In
 	if oldInfoSchema != nil {
 		currentSchemaVersion = oldInfoSchema.SchemaMetaVersion()
 	}
+	log.Info("loadInfoSchema", zap.Any("currentSchemaVersion", currentSchemaVersion))
 	useV2, isV1V2Switch := shouldUseV2(enableV2, oldInfoSchema, isSnapshot)
 	if is := do.infoCache.GetByVersion(neededSchemaVersion); is != nil {
 		isV2, raw := infoschema.IsV2(is)

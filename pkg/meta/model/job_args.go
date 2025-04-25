@@ -18,10 +18,12 @@ import (
 	"encoding/json"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/util/intest"
 	pdhttp "github.com/tikv/pd/client/http"
+	"go.uber.org/zap"
 )
 
 // AutoIDGroup represents a group of auto IDs of a specific table.
@@ -73,6 +75,7 @@ func getOrDecodeArgsV1[T JobArgs](args T, job *Job) (T, error) {
 func getOrDecodeArgsV2[T JobArgs](job *Job) (T, error) {
 	intest.Assert(job.Version == JobVersion2, "job version is not v2")
 	if len(job.args) > 0 {
+		log.Info("job.args", zap.Any("job.args", job.args), zap.Any("job.args.len", len(job.args)))
 		intest.Assert(len(job.args) == 1, "job args length is not 1")
 		return job.args[0].(T), nil
 	}
@@ -242,6 +245,16 @@ func (a *CreateTableArgs) decodeV1(job *Job) error {
 	return nil
 }
 
+func FillRollBackArgsForCreateTable(job *Job, args *CreateTableArgs) {
+	intest.Assert(job.Type == ActionCreateTable, "only for create table job")
+	fakeJob := &Job{
+		Version: job.Version,
+		Type:    ActionDropTable,
+	}
+	fakeJob.FillArgs(args)
+	job.args = fakeJob.args
+}
+
 // GetCreateTableArgs gets the create-table args.
 func GetCreateTableArgs(job *Job) (*CreateTableArgs, error) {
 	return getOrDecodeArgs[*CreateTableArgs](&CreateTableArgs{}, job)
@@ -316,7 +329,9 @@ func (a *DropTableArgs) decodeV1(job *Job) error {
 
 // GetDropTableArgs gets the drop-table args.
 func GetDropTableArgs(job *Job) (*DropTableArgs, error) {
-	return getOrDecodeArgs[*DropTableArgs](&DropTableArgs{}, job)
+	args, err := getOrDecodeArgs[*DropTableArgs](&DropTableArgs{}, job)
+	log.Info("GetDropTableArgs", zap.Any("args", args), zap.Any("err", err))
+	return args, err
 }
 
 // GetFinishedDropTableArgs gets the drop-table args after the job is finished.

@@ -19,6 +19,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/parser/terror"
@@ -521,6 +522,7 @@ func rollingbackAddTablePartition(jobCtx *jobContext, job *model.Job) (ver int64
 
 func rollingbackDropTableOrView(jobCtx *jobContext, job *model.Job) error {
 	tblInfo, err := checkTableExistAndCancelNonExistJob(jobCtx.metaMut, job, job.SchemaID)
+	log.Info("rollingbackDropTableOrView", zap.Any("tblInfo", tblInfo))
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -644,6 +646,8 @@ func convertJob2RollbackJob(w *worker, jobCtx *jobContext, job *model.Job) (ver 
 		ver, err = rollingBackDropConstraint(jobCtx, job)
 	case model.ActionAlterCheckConstraint:
 		ver, err = rollingBackAlterConstraint(jobCtx, job)
+	// case model.ActionCreateTable:
+	// 	ver, err = rollingbackCreateTable(jobCtx, job)
 	default:
 		job.State = model.JobStateCancelled
 		err = dbterror.ErrCancelledDDLJob
@@ -661,6 +665,7 @@ func convertJob2RollbackJob(w *worker, jobCtx *jobContext, job *model.Job) (ver 
 			if !job.Error.Equal(dbterror.ErrCancelledDDLJob) {
 				job.Error = terror.GetErrClass(job.Error).Synthesize(terror.ErrCode(job.Error.Code()),
 					fmt.Sprintf("DDL job rollback, error msg: %s", terror.ToSQLError(job.Error).Message))
+				log.Info("rollback job error", zap.String("job", job.String()), zap.Any("job.type", job.Type))
 			}
 		} else {
 			// A job canceling meet other error.
@@ -672,6 +677,7 @@ func convertJob2RollbackJob(w *worker, jobCtx *jobContext, job *model.Job) (ver 
 				logger.Error("load DDL global variable failed", zap.Error(err1))
 			}
 			errorCount := vardef.GetDDLErrorCountLimit()
+			log.Info("errorCount", zap.Int64("errorCount", job.ErrorCount), zap.Any("job.Id", job.ID), zap.Any("job.State", job.State))
 			if job.ErrorCount > errorCount {
 				logger.Warn("rollback DDL job error count exceed the limit, cancelled it now", zap.Int64("errorCountLimit", errorCount))
 				job.Error = toTError(errors.Errorf("rollback DDL job error count exceed the limit %d, cancelled it now", errorCount))
@@ -688,6 +694,43 @@ func convertJob2RollbackJob(w *worker, jobCtx *jobContext, job *model.Job) (ver 
 	}
 
 	return
+}
+
+// not used
+func rollingbackCreateTable(jobCtx *jobContext, job *model.Job) (ver int64, err error) {
+	tblInfo, err := getTableInfo(jobCtx.metaMut, job.TableID, job.SchemaID)
+	log.Info("rollingbackCreateTable", zap.Any("tblInfo.Name", tblInfo.Name))
+	if err != nil {
+		return ver, errors.Trace(err)
+	}
+	if tblInfo == nil {
+		job.State = model.JobStateCancelled
+		return ver, dbterror.ErrCancelledDDLJob
+	}
+
+	// For tables in write only state, we need to remove the table
+	// err = jobCtx.metaMut.DropTableOrView(job.SchemaID, job.TableID)
+	// if err != nil {
+	// 	return ver, errors.Trace(err)
+	// }
+
+	originalState := tblInfo.State
+	tblInfo.State = model.StateDeleteOnly
+	job.SchemaState = model.StateDeleteOnly
+
+	args := &model.CreateTableArgs{
+		TableInfo: tblInfo,
+	}
+	model.FillRollBackArgsForCreateTable(job, args)
+	// log.Info("rollingbackCreateTable", zap.Any("args", args))
+	ver, err = updateVersionAndTableInfo(jobCtx, job, tblInfo, originalState != model.StateDeleteOnly)
+	if err != nil {
+		return ver, errors.Trace(err)
+	}
+	job.State = model.JobStateRollingback
+	log.Info("rollingbackCreateTable", zap.Any("job.Id", job.ID), zap.Any("job.State", job.State))
+	return ver, dbterror.ErrCancelledDDLJob
+
 }
 
 func rollingBackAddConstraint(jobCtx *jobContext, job *model.Job) (ver int64, err error) {

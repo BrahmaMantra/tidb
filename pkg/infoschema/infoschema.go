@@ -23,6 +23,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/pkg/ddl/placement"
 	"github.com/pingcap/tidb/pkg/infoschema/context"
 	"github.com/pingcap/tidb/pkg/meta/autoid"
@@ -34,6 +35,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/mock"
+	"go.uber.org/zap"
 )
 
 var _ context.Misc = &infoSchemaMisc{}
@@ -229,10 +231,16 @@ func (is *infoSchema) SchemaExists(schema ast.CIStr) bool {
 
 func (is *infoSchema) TableByName(ctx stdctx.Context, schema, table ast.CIStr) (t table.Table, err error) {
 	if tbNames, ok := is.schemaMap[schema.L]; ok {
+		// log.Info("TableByName", zap.Any("tbNames", tbNames))
 		if t, ok = tbNames.tables[table.L]; ok {
+			// log.Info("TableByName", zap.Any("t", t.Meta().Name))
+			if table.L == "t2" {
+				log.Info("TableByName", zap.Any("t", t.Meta().Name))
+			}
 			return
 		}
 	}
+	log.Info("TableByName", zap.Any("schema", schema), zap.Any("table", table))
 	return nil, ErrTableNotExists.FastGenByArgs(schema, table)
 }
 
@@ -451,6 +459,7 @@ func (is *infoSchema) FindTableByPartitionID(partitionID int64) (table.Table, *m
 // addSchema is used to add a schema to the infoSchema, it will overwrite the old
 // one if it already exists.
 func (is *infoSchema) addSchema(st *schemaTables) {
+	log.Info("addSchema", zap.Any("st.dbInfo.Name", st.dbInfo.Name), zap.Any("tables", st.tables))
 	is.schemaMap[st.dbInfo.Name.L] = st
 	is.schemaID2Name[st.dbInfo.ID] = st.dbInfo.Name.L
 }
@@ -831,7 +840,7 @@ func (ts *SessionExtendedInfoSchema) TableByName(ctx stdctx.Context, schema, tab
 			return tbl, nil
 		}
 	}
-
+	// log.Info("TableByName", zap.Any("schema", schema), zap.Any("table", table))
 	return ts.InfoSchema.TableByName(ctx, schema, table)
 }
 

@@ -1970,7 +1970,7 @@ func tryLockMDLAndUpdateSchemaIfNecessary(ctx context.Context, sctx base.PlanCon
 		//
 		// This function may return a new table, so we need to check the return value in the `defer` block.
 		if err == nil {
-			if retTbl.Meta().State != model.StatePublic {
+			if retTbl.Meta().State != model.StatePublic && !sctx.GetSessionVars().InRestrictedSQL {
 				err = infoschema.ErrTableNotExists.FastGenByArgs(dbName.L, retTbl.Meta().Name.L)
 				retTbl = nil
 			}

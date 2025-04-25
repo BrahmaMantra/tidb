@@ -700,6 +700,7 @@ func applyCreateTable(b *Builder, m meta.Reader, dbInfo *model.DBInfo, tableID i
 		tableNames.tables[tblInfo.Name.L] = tbl
 	}
 	b.addTable(schemaVersion, dbInfo, tblInfo, tbl)
+	// log.Info("addTable", zap.Any("tableID", tableID), zap.Any("tableInfo", tblInfo))
 
 	bucketIdx := tableBucketIdx(tableID)
 	slices.SortFunc(b.infoSchema.sortedTablesBuckets[bucketIdx], func(i, j table.Table) int {
@@ -712,6 +713,7 @@ func applyCreateTable(b *Builder, m meta.Reader, dbInfo *model.DBInfo, tableID i
 
 	newTbl, ok := b.infoSchema.TableByID(context.Background(), tableID)
 	if ok {
+		// log.Info("addTable", zap.Any("tableID", tableID), zap.Any("tableInfo", newTbl.Meta()))
 		dbInfo.Deprecated.Tables = append(dbInfo.Deprecated.Tables, newTbl.Meta())
 	}
 	return affected, nil

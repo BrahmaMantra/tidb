@@ -20,6 +20,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/pkg/ddl/logutil"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/meta"
@@ -30,6 +31,7 @@ import (
 
 // SetSchemaDiffForCreateTables set SchemaDiff for ActionCreateTables.
 func SetSchemaDiffForCreateTables(diff *model.SchemaDiff, job *model.Job) error {
+	log.Info("SetSchemaDiffForCreateTables", zap.Any("diff.TableID", diff.TableID))
 	args, err := model.GetBatchCreateTableArgs(job)
 	if err != nil {
 		return errors.Trace(err)
@@ -287,6 +289,7 @@ func SetSchemaDiffForFlashbackCluster(diff *model.SchemaDiff, job *model.Job) {
 
 // SetSchemaDiffForMultiInfos set SchemaDiff for multiInfos.
 func SetSchemaDiffForMultiInfos(diff *model.SchemaDiff, multiInfos ...schemaIDAndTableInfo) {
+	log.Info("SetSchemaDiffForMultiInfos", zap.Any("diff.schemaID", diff.SchemaID), zap.Any("diff.tableID", diff.TableID))
 	if len(multiInfos) > 0 {
 		existsMap := make(map[int64]struct{})
 		existsMap[diff.TableID] = struct{}{}
@@ -299,6 +302,7 @@ func SetSchemaDiffForMultiInfos(diff *model.SchemaDiff, multiInfos ...schemaIDAn
 				continue
 			}
 			existsMap[info.tblInfo.ID] = struct{}{}
+			log.Info("SetSchemaDiffForMultiInfos", zap.Any("diff.schemaID", diff.SchemaID), zap.Any("diff.tableID", diff.TableID), zap.Any("info", info))
 			diff.AffectedOpts = append(diff.AffectedOpts, &model.AffectedOption{
 				SchemaID:    info.schemaID,
 				OldSchemaID: info.schemaID,
@@ -312,6 +316,7 @@ func SetSchemaDiffForMultiInfos(diff *model.SchemaDiff, multiInfos ...schemaIDAn
 // updateSchemaVersion increments the schema version by 1 and sets SchemaDiff.
 func updateSchemaVersion(jobCtx *jobContext, job *model.Job, multiInfos ...schemaIDAndTableInfo) (int64, error) {
 	schemaVersion, err := jobCtx.setSchemaVersion(jobCtx, job)
+	log.Info("updateSchemaVersion", zap.Any("schemaVersion", schemaVersion), zap.Any("err", err))
 	if err != nil {
 		return 0, errors.Trace(err)
 	}

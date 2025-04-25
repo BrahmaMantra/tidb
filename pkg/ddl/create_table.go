@@ -199,65 +199,83 @@ func (w *worker) onCreateTable(jobCtx *jobContext, job *model.Job) (ver int64, _
 
 // FIXME:Now this function is not correctly
 func (w *worker) createTableWithSelect(jobCtx *jobContext, job *model.Job, args *model.CreateTableArgs) (ver int64, err error) {
+	log.Info("create table with select", zap.Any("job.Id", job.ID), zap.Any("job.State", job.State))
+
 	tbInfo := args.TableInfo
+	// Handle the rollback of create table with select
+	if job.IsRollingback() {
+		tbInfo.State = model.StateDeleteOnly
+		// If the job is rolling back, we need to drop the table
+		job.SchemaState = tbInfo.State
+		job.Type = model.ActionDropTable
+		job.ClearDecodedArgs()
+		// Now continue with the actual rollback
+		log.Info("create table with select in rollback", zap.Any("job.SchemaName", job.SchemaName), zap.Any("job.TableName", job.TableName), zap.Any("job", job))
+		ver, err = w.onDropTableOrView(jobCtx, job)
+		if err != nil {
+			return ver, errors.Trace(err)
+		}
+		return ver, nil
+	}
 	// 1. create sql
 	sql := args.Sql
 	logutil.DDLLogger().Info("import into table from", zap.String("sql", sql), zap.Any("args.TableInfo.State", args.TableInfo.State))
 
 	// 2. prepare sessionPool
-	var sctx sessionctx.Context
-	sctx, err = w.sessPool.Get()
-	if err != nil {
-		return ver, errors.Trace(err)
-	}
-	if err != nil {
-		return ver, errors.Trace(err)
-	}
-	defer w.sessPool.Put(sctx)
+	// var sctx sessionctx.Context
+	// sctx, err = w.sessPool.Get()
+	// if err != nil {
+	// 	return ver, errors.Trace(err)
+	// }
+	// if err != nil {
+	// 	return ver, errors.Trace(err)
+	// }
+	// defer w.sessPool.Put(sctx)
 	// this state change is error now,due to table is not exists before asyncNotifyEvent
 	switch tbInfo.State {
 	case model.StateNone:
+		log.Info("create table in None state")
 		tbInfo, err = createTable(jobCtx, job, args)
 		if err != nil {
 			return ver, errors.Trace(err)
 		}
 		// none -> delete only
-		tbInfo.State = model.StateDeleteOnly
-		if ver, err = updateVersionAndTableInfo(jobCtx, job, tbInfo, true); err != nil {
-			return ver, errors.Trace(err)
-		}
-		job.SchemaState = model.StateDeleteOnly
-	case model.StateDeleteOnly:
-		// delete only -> write only
-		log.Info("create table in DeleteOnly state")
 		tbInfo.State = model.StateWriteOnly
 		if ver, err = updateVersionAndTableInfo(jobCtx, job, tbInfo, true); err != nil {
 			return ver, errors.Trace(err)
 		}
 		job.SchemaState = model.StateWriteOnly
-	case model.StateWriteOnly:
-		// write only -> WriteReorganization
-		_, err = sctx.GetSQLExecutor().ExecuteInternal(jobCtx.stepCtx, sql)
+	case model.StateDeleteOnly, model.StateWriteOnly:
+		var sctx sessionctx.Context
+		// time.Sleep(1 * time.Second)
+		sctx, err = w.sessPool.Get()
 		if err != nil {
 			return ver, errors.Trace(err)
 		}
-
-		log.Info("create table in WriteOnly state")
-		tbInfo.State = model.StateWriteReorganization
-		if ver, err = updateVersionAndTableInfo(jobCtx, job, tbInfo, true); err != nil {
+		defer w.sessPool.Put(sctx)
+		log.Info("create table in WriteOnly state", zap.Any("schema.version", job.SchemaState))
+		// write only -> WriteReorganization
+		_, err = sctx.GetSQLExecutor().ExecuteInternal(jobCtx.stepCtx, sql)
+		if err != nil {
+			log.Info("create table with select in WriteOnly state error", zap.Any("error", err))
+			job.State = model.JobStateRollingback
+			if ver, err = updateVersionAndTableInfo(jobCtx, job, tbInfo, true); err != nil {
+				return ver, errors.Trace(err)
+			}
 			return ver, errors.Trace(err)
 		}
-		job.SchemaState = model.StateWriteReorganization
-
-	case model.StateWriteReorganization:
-		log.Info("create table in WriteReorganization state")
 		tbInfo.State = model.StatePublic
 		if ver, err = updateVersionAndTableInfo(jobCtx, job, tbInfo, true); err != nil {
 			return ver, errors.Trace(err)
 		}
 		job.SchemaState = model.StatePublic
+
 	case model.StatePublic:
 		log.Info("create table in Public state")
+		// _, err = sctx.GetSQLExecutor().ExecuteInternal(jobCtx.stepCtx, sql)
+		// if err != nil {
+		// 	return ver, errors.Trace(err)
+		// }
 		if ver, err = updateVersionAndTableInfo(jobCtx, job, tbInfo, true); err != nil {
 			return ver, errors.Trace(err)
 		}
