@@ -1862,8 +1862,6 @@ func (e *executor) AlterTable(ctx context.Context, sctx sessionctx.Context, stmt
 				err = e.CreateForeignKey(sctx, ident, ast.NewCIStr(constr.Name), spec.Constraint.Keys, spec.Constraint.Refer)
 			case ast.ConstraintPrimaryKey:
 				err = e.CreatePrimaryKey(sctx, ident, ast.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option)
-			case ast.ConstraintFulltext:
-				sctx.GetSessionVars().StmtCtx.AppendWarning(dbterror.ErrTableCantHandleFt)
 			case ast.ConstraintCheck:
 				if !vardef.EnableCheckConstraint.Load() {
 					sctx.GetSessionVars().StmtCtx.AppendWarning(errCheckConstraintIsOff)
@@ -3022,6 +3020,8 @@ func checkTableDefCompatible(source *model.TableInfo, target *model.TableInfo) e
 		source.Collate != target.Collate ||
 		source.ShardRowIDBits != target.ShardRowIDBits ||
 		source.MaxShardRowIDBits != target.MaxShardRowIDBits ||
+		source.PKIsHandle != target.PKIsHandle ||
+		source.IsCommonHandle != target.IsCommonHandle ||
 		!checkTiFlashReplicaCompatible(source.TiFlashReplica, target.TiFlashReplica) {
 		return errors.Trace(dbterror.ErrTablesDifferentMetadata)
 	}
@@ -4061,7 +4061,7 @@ func checkIndexLengthWithNewCharset(tblInfo *model.TableInfo, toCharset, toColla
 	}
 
 	for _, indexInfo := range tblInfo.Indices {
-		err := checkIndexPrefixLength(columns, indexInfo.Columns)
+		err := checkIndexPrefixLength(columns, indexInfo.Columns, indexInfo.GetColumnarIndexType())
 		if err != nil {
 			return err
 		}
@@ -4784,7 +4784,7 @@ func checkTableTypeForColumnarIndex(tblInfo *model.TableInfo) error {
 		return dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("unsupported partition table")
 	}
 	if tblInfo.TiFlashReplica == nil || tblInfo.TiFlashReplica.Count == 0 {
-		return dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("unsupported empty TiFlash replica, the replica is nil")
+		return dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("columnar replica must exist to create vector index, columnar index or fulltext index")
 	}
 
 	return nil
@@ -4808,6 +4808,8 @@ func (e *executor) createColumnarIndex(ctx sessionctx.Context, ti ast.Ident, ind
 		columnarIndexType = model.ColumnarIndexTypeInverted
 	case ast.IndexTypeVector:
 		columnarIndexType = model.ColumnarIndexTypeVector
+	case ast.IndexTypeFulltext:
+		columnarIndexType = model.ColumnarIndexTypeFulltext
 	default:
 		return dbterror.ErrUnsupportedIndexType.GenWithStackByArgs(indexOption.Tp)
 	}
@@ -4827,6 +4829,10 @@ func (e *executor) createColumnarIndex(ctx sessionctx.Context, ti ast.Ident, ind
 		}
 	case model.ColumnarIndexTypeVector:
 		if _, funcExpr, err = buildVectorInfoWithCheck(indexPartSpecifications, tblInfo); err != nil {
+			return errors.Trace(err)
+		}
+	case model.ColumnarIndexTypeFulltext:
+		if _, err = buildFullTextInfoWithCheck(indexPartSpecifications, indexOption, tblInfo); err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -4925,8 +4931,8 @@ func (e *executor) createIndex(ctx sessionctx.Context, ti ast.Ident, keyType ast
 	indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption, ifNotExists bool) error {
 	// not support Spatial and FullText index
 	switch keyType {
-	case ast.IndexKeyTypeFullText, ast.IndexKeyTypeSpatial:
-		return dbterror.ErrUnsupportedIndexType.GenWithStack("FULLTEXT and SPATIAL index is not supported")
+	case ast.IndexKeyTypeSpatial:
+		return dbterror.ErrUnsupportedIndexType.GenWithStack("SPATIAL index is not supported")
 	case ast.IndexKeyTypeColumnar:
 		return e.createColumnarIndex(ctx, ti, indexName, indexPartSpecifications, indexOption, ifNotExists)
 	}
